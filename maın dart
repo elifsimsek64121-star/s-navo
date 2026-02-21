@@ -1,0 +1,1099 @@
+// lib/main.dart - NATIVE REKLAM KALDIRILMIŞ, ÇÖKMEYECEK HALİ (Tam ve Eksiksiz)
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:share_plus/share_plus.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Reklam başlatma güvenli hale getirildi
+  try {
+    await MobileAds.instance.initialize();
+  } catch (e) {
+    debugPrint("Reklam başlatılamadı (ama uygulama devam eder): $e");
+  }
+
+  runApp(const SinavoHesapApp());
+}
+
+class SinavoHesapApp extends StatefulWidget {
+  const SinavoHesapApp({super.key});
+
+  @override
+  State<SinavoHesapApp> createState() => _SinavoHesapAppState();
+}
+
+class _SinavoHesapAppState extends State<SinavoHesapApp> {
+  ThemeMode _themeMode = ThemeMode.system;
+
+  void toggleTheme(bool isDark) {
+    setState(() => _themeMode = isDark ? ThemeMode.dark : ThemeMode.light);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'SINAVO puan hesaplayıcı',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6A1B9A), brightness: Brightness.light),
+        useMaterial3: true,
+        fontFamily: GoogleFonts.poppins().fontFamily,
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          labelStyle: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF6A1B9A)),
+        ),
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6A1B9A), brightness: Brightness.dark),
+        useMaterial3: true,
+        fontFamily: GoogleFonts.poppins().fontFamily,
+        scaffoldBackgroundColor: const Color(0xFF121212),
+      ),
+      themeMode: _themeMode,
+      home: HomeScreen(onThemeToggle: toggleTheme),
+    );
+  }
+}
+
+// ====================== BANNER REKLAM ======================
+class BannerAdWidget extends StatefulWidget {
+  const BannerAdWidget({super.key});
+
+  @override
+  State<BannerAdWidget> createState() => _BannerAdWidgetState();
+}
+
+class _BannerAdWidgetState extends State<BannerAdWidget> {
+  BannerAd? _bannerAd;
+  bool _isLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBanner();
+  }
+
+  void _loadBanner() {
+    _bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-6551908952762916/2065982369',
+      request: const AdRequest(),
+      size: AdSize.banner,
+      listener: BannerAdListener(
+        onAdLoaded: (_) => setState(() => _isLoaded = true),
+        onAdFailedToLoad: (ad, error) {
+          ad.dispose();
+          Future.delayed(const Duration(seconds: 12), _loadBanner);
+        },
+      ),
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _isLoaded && _bannerAd != null
+        ? SizedBox(
+            width: _bannerAd!.size.width.toDouble(),
+            height: _bannerAd!.size.height.toDouble(),
+            child: AdWidget(ad: _bannerAd!),
+          )
+        : const SizedBox(height: 60);
+  }
+}
+
+// ====================== GİZLİLİK BUTONU ======================
+class PrivacyButton extends StatelessWidget {
+  final String privacyUrl = "https://ismailsimsekyazilim2107-tech.github.io/sinavo-puan-hesaplayici/privacy-policy.html";
+
+  const PrivacyButton({super.key});
+
+  Future<void> _launchURL() async {
+    final Uri url = Uri.parse(privacyUrl);
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _launchURL,
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.white.withOpacity(0.2),
+            child: const Icon(Icons.privacy_tip, color: Colors.white, size: 20),
+          ),
+          const SizedBox(height: 6),
+          const Text('Gizlilik', style: TextStyle(color: Colors.white70, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+// ====================== ANA EKRAN ======================
+class HomeScreen extends StatefulWidget {
+  final Function(bool) onThemeToggle;
+  const HomeScreen({super.key, required this.onThemeToggle});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  InterstitialAd? _interstitialAd;
+  bool _isAdLoaded = false;
+  int _clickCounter = 0;
+  static const int _adThreshold = 15;
+  static const int _skipFirstClicks = 4;
+
+  Set<String> favorites = {};
+
+  final List<Map<String, dynamic>> examCategories = [
+    {
+      'title': 'YKS (Üniversite)',
+      'gradient': const LinearGradient(colors: [Color(0xFF6A1B9A), Color(0xFF9C27B0)]),
+      'icon': Icons.school,
+      'exams': [
+        {'id': 'yks_tyt', 'title': 'TYT Puan', 'icon': Icons.bar_chart},
+        {'id': 'yks_sayisal', 'title': 'AYT Sayısal', 'icon': Icons.science},
+        {'id': 'yks_esit_agirlik', 'title': 'AYT Eşit Ağırlık', 'icon': Icons.balance},
+        {'id': 'yks_sozel', 'title': 'AYT Sözel', 'icon': Icons.menu_book},
+        {'id': 'yks_dil', 'title': 'YDT Dil', 'icon': Icons.language},
+      ],
+    },
+    {
+      'title': 'KPSS',
+      'gradient': const LinearGradient(colors: [Color(0xFF1A237E), Color(0xFF3949AB)]),
+      'icon': Icons.work,
+      'exams': [
+        {'id': 'ortaogretim', 'title': 'Ortaöğretim (P94)', 'icon': Icons.school},
+        {'id': 'onlisans', 'title': 'Önlisans (P93)', 'icon': Icons.menu_book},
+        {'id': 'lisans', 'title': 'Lisans (P3)', 'icon': Icons.star},
+        {'id': 'oabt', 'title': 'ÖABT', 'icon': Icons.auto_stories},
+        {'id': 'dhbt', 'title': 'DHBT', 'icon': Icons.mosque},
+      ],
+    },
+    {
+      'title': 'Diğer Sınavlar',
+      'gradient': const LinearGradient(colors: [Color(0xFF00695C), Color(0xFF00897B)]),
+      'icon': Icons.more_horiz,
+      'exams': [
+        {'id': 'ags_general', 'title': 'AGS - Akademi Giriş', 'icon': Icons.account_balance},
+        {'id': 'ekpss', 'title': 'EKPSS', 'icon': Icons.accessibility_new},
+      ],
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInterstitialAd();
+    _loadFavorites();
+  }
+
+  Future<void> _loadFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      favorites = (prefs.getStringList('favorites') ?? []).toSet();
+    });
+  }
+
+  Future<void> _toggleFavorite(String examId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final newFavs = favorites.toSet();
+    if (newFavs.contains(examId)) {
+      newFavs.remove(examId);
+    } else {
+      newFavs.add(examId);
+    }
+    await prefs.setStringList('favorites', newFavs.toList());
+    setState(() => favorites = newFavs);
+  }
+
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: 'ca-app-pub-6551908952762916/9670808516',
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+          setState(() => _isAdLoaded = true);
+        },
+        onAdFailedToLoad: (error) {
+          setState(() => _isAdLoaded = false);
+          Future.delayed(const Duration(seconds: 20), _loadInterstitialAd);
+        },
+      ),
+    );
+  }
+
+  void _showInterstitialAd(BuildContext context, String examId, String examTitle) {
+    _clickCounter++;
+
+    void navigate() {
+      Navigator.of(context).push(PageRouteBuilder(
+        pageBuilder: (_, __, ___) => ExamScreen(examId: examId, examTitle: examTitle),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 300),
+      ));
+    }
+
+    if (_clickCounter <= _skipFirstClicks) {
+      navigate();
+      return;
+    }
+
+    if (_clickCounter >= _adThreshold) {
+      _clickCounter = 0;
+      if (_isAdLoaded && _interstitialAd != null) {
+        _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+          onAdDismissedFullScreenContent: (ad) {
+            ad.dispose();
+            _loadInterstitialAd();
+            navigate();
+          },
+          onAdFailedToShowFullScreenContent: (ad, _) {
+            ad.dispose();
+            _loadInterstitialAd();
+            navigate();
+          },
+        );
+        _interstitialAd!.show();
+      } else {
+        navigate();
+        _loadInterstitialAd();
+      }
+    } else {
+      navigate();
+    }
+  }
+
+  Widget _buildLastResultCard() {
+    return FutureBuilder<SharedPreferences>(
+      future: SharedPreferences.getInstance(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox();
+        final prefs = snapshot.data!;
+        String? lastExamId;
+        String? lastScore;
+        for (var key in prefs.getKeys()) {
+          if (key.startsWith('last_') && prefs.getString(key) != null) {
+            lastExamId = key.substring(5);
+            lastScore = prefs.getString(key);
+          }
+        }
+        if (lastExamId == null) return const SizedBox();
+
+        final exam = examCategories
+            .expand((cat) => cat['exams'] as List<Map<String, dynamic>>)
+            .firstWhere((e) => e['id'] == lastExamId, orElse: () => {'title': 'Bilinmeyen'});
+
+        return Card(
+          color: Colors.white.withOpacity(0.15),
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.history, color: Colors.amber),
+            title: Text("Son: ${exam['title']}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            trailing: Text("$lastScore puan", style: const TextStyle(color: Colors.amber, fontSize: 20, fontWeight: FontWeight.bold)),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _interstitialAd?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      bottomNavigationBar: const BannerAdWidget(),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isDark
+                ? [const Color(0xFF0D0221), const Color(0xFF1A0B3D)]
+                : [const Color(0xFF311B92), const Color(0xFF6A1B9A)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 30, 20, 20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Colors.amber, Colors.orange]),
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))],
+                      ),
+                      child: const Icon(Icons.calculate, color: Colors.white, size: 34),
+                    ),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('SINAVO', style: GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
+                        Text('Puan Hesaplayıcı', style: GoogleFonts.poppins(fontSize: 14, color: Colors.white70)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              _buildLastResultCard(),
+
+              if (favorites.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.amber.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
+                  child: Row(children: const [Icon(Icons.star, color: Colors.amber), SizedBox(width: 8), Text("Favorilerim", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]),
+                ),
+
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: examCategories.length + (favorites.isNotEmpty ? 1 : 0),
+                  itemBuilder: (context, i) {
+                    if (favorites.isNotEmpty && i == 0) {
+                      final favExams = examCategories.expand((cat) => cat['exams'] as List<Map<String, dynamic>>).where((e) => favorites.contains(e['id'])).toList();
+                      return Column(
+                        children: favExams.map((exam) => ListTile(
+                          leading: const Icon(Icons.star, color: Colors.amber),
+                          title: Text(exam['title'], style: const TextStyle(color: Colors.white)),
+                          trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white70),
+                          onTap: () => _showInterstitialAd(context, exam['id'], exam['title']),
+                        )).toList(),
+                      );
+                    }
+
+                    final catIndex = favorites.isNotEmpty ? i - 1 : i;
+                    if (catIndex >= examCategories.length) return const SizedBox();
+                    final cat = examCategories[catIndex];
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 6))]),
+                      child: Card(
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        child: Container(
+                          decoration: BoxDecoration(gradient: cat['gradient'], borderRadius: BorderRadius.circular(20)),
+                          child: ExpansionTile(
+                            leading: CircleAvatar(backgroundColor: Colors.white.withOpacity(0.2), child: Icon(cat['icon'], color: Colors.white)),
+                            title: Text(cat['title'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                            children: (cat['exams'] as List).map<Widget>((exam) {
+                              final isFav = favorites.contains(exam['id']);
+                              return ListTile(
+                                leading: Icon(isFav ? Icons.star : Icons.star_border, color: isFav ? Colors.amber : Colors.white70),
+                                title: Text(exam['title'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                                trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 18),
+                                onTap: () => _showInterstitialAd(context, exam['id'], exam['title']),
+                                onLongPress: () => _toggleFavorite(exam['id']),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildFooterButton(Icons.info, 'Hakkında', () => _showAboutDialog(context)),
+                    _buildFooterButton(Icons.share, 'Paylaş', _shareApp),
+                    _buildFooterButton(Icons.history, 'Geçmiş', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen()))),
+                    _buildFooterButton(isDark ? Icons.light_mode : Icons.dark_mode, isDark ? 'Açık' : 'Karanlık', () => widget.onThemeToggle(!isDark)),
+                    const PrivacyButton(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooterButton(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          CircleAvatar(radius: 22, backgroundColor: Colors.white.withOpacity(0.2), child: Icon(icon, color: Colors.white, size: 20)),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showAboutDialog(
+      context: context,
+      applicationName: 'SINAVO Hesap',
+      applicationVersion: '2.1.0',
+      applicationIcon: Image.asset('assets/icons/app_icon.png', width: 60),
+      children: const [Text('ÖSYM ile aynı sonuçlar.\nGeliştirici: @sinavoapp', textAlign: TextAlign.center)],
+    );
+  }
+
+  void _shareApp() {
+    Share.share('SINAVO – En doğru YKS & KPSS puan hesaplayıcı! ÖSYM ile aynı sonuçlar\nhttps://play.google.com/store/apps/details?id=com.sinavo.hesap');
+  }
+}
+
+// ====================== GEÇMİŞ EKRANI ======================
+class HistoryScreen extends StatelessWidget {
+  const HistoryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Hesaplama Geçmişi"), backgroundColor: const Color(0xFF6A1B9A)),
+      body: FutureBuilder<SharedPreferences>(
+        future: SharedPreferences.getInstance(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          final prefs = snapshot.data!;
+          final history = prefs.getStringList('history') ?? [];
+
+          if (history.isEmpty) {
+            return const Center(child: Text("Henüz hesaplama yapılmadı", style: TextStyle(fontSize: 18)));
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: history.length,
+            itemBuilder: (_, i) {
+              final parts = history[i].split('|');
+              final date = DateTime.parse(parts[0]);
+              final exam = parts[1];
+              final score = parts[2];
+              return Card(
+                child: ListTile(
+                  title: Text(exam),
+                  subtitle: Text("${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}"),
+                  trailing: Text("$score puan", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.purple)),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ====================== SINAV EKRANI ======================
+class ExamScreen extends StatefulWidget {
+  final String examId;
+  final String examTitle;
+
+  const ExamScreen({super.key, required this.examId, required this.examTitle});
+
+  @override
+  State<ExamScreen> createState() => _ExamScreenState();
+}
+
+class _ExamScreenState extends State<ExamScreen> {
+  final Map<String, TextEditingController> correctControllers = {};
+  final Map<String, TextEditingController> wrongControllers = {};
+  final TextEditingController obpController = TextEditingController();
+  final TextEditingController tytScoreController = TextEditingController();
+  final TextEditingController hedefController = TextEditingController();
+
+  String score = '0.00', rawScore = '0.00', obpScore = '0.00', totalAYTScore = '0.00';
+  bool isCalculating = false;
+  late List<Map<String, dynamic>> sections;
+  final Map<String, double> netMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    final data = getSections(widget.examId);
+    sections = data['all_sections'] as List<Map<String, dynamic>>;
+    for (var sec in sections) {
+      final title = sec['title'] as String;
+      correctControllers[title] = TextEditingController()..addListener(() => _updateNet(title));
+      wrongControllers[title] = TextEditingController()..addListener(() => _updateNet(title));
+    }
+  }
+
+  void _updateNet(String title) {
+    final sec = sections.firstWhere((s) => s['title'] == title, orElse: () => <String, dynamic>{});
+    if (sec.isEmpty) return;
+    final maxQ = (sec['questions'] ?? 0) as int;
+    final c = double.tryParse(correctControllers[title]?.text ?? '0') ?? 0;
+    final w = double.tryParse(wrongControllers[title]?.text ?? '0') ?? 0;
+    if (c >= 0 && w >= 0 && (c + w) <= maxQ) {
+      setState(() {
+        netMap[title] = c - (w / 4);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    correctControllers.values.forEach((c) => c.dispose());
+    wrongControllers.values.forEach((w) => w.dispose());
+    obpController.dispose();
+    tytScoreController.dispose();
+    hedefController.dispose();
+    super.dispose();
+  }
+
+  bool isYksExam() => widget.examId.startsWith('yks');
+  bool isAgsExam() => widget.examId == 'ags_general';
+
+  Map<String, dynamic> getSections(String examId) {
+    if (examId.startsWith('yks')) {
+      final tyt = [
+        {'title': 'TYT Türkçe', 'questions': 40, 'tyt_katsayi': 3.3},
+        {'title': 'TYT Sosyal Bilimler', 'questions': 20, 'tyt_katsayi': 3.4},
+        {'title': 'TYT Temel Matematik', 'questions': 40, 'tyt_katsayi': 3.3},
+        {'title': 'TYT Fen Bilimleri', 'questions': 20, 'tyt_katsayi': 3.4},
+      ];
+      final ayt = <Map<String, dynamic>>[];
+
+      switch (examId) {
+        case 'yks_tyt': break;
+        case 'yks_sayisal':
+          ayt.addAll([
+            {'title': 'AYT Matematik', 'questions': 40, 'ayt_katsayi': 3.0},
+            {'title': 'AYT Fizik', 'questions': 14, 'ayt_katsayi': 2.85},
+            {'title': 'AYT Kimya', 'questions': 13, 'ayt_katsayi': 3.07},
+            {'title': 'AYT Biyoloji', 'questions': 13, 'ayt_katsayi': 3.07},
+          ]);
+          break;
+        case 'yks_esit_agirlik':
+          ayt.addAll([
+            {'title': 'AYT Matematik', 'questions': 40, 'ayt_katsayi': 3.0},
+            {'title': 'AYT Türk Dili ve Edebiyatı', 'questions': 24, 'ayt_katsayi': 3.0},
+            {'title': 'AYT Tarih-1', 'questions': 10, 'ayt_katsayi': 2.80},
+            {'title': 'AYT Coğrafya-1', 'questions': 6, 'ayt_katsayi': 3.33},
+          ]);
+          break;
+        case 'yks_sozel':
+          ayt.addAll([
+            {'title': 'AYT Türk Dili ve Edebiyatı', 'questions': 24, 'ayt_katsayi': 3.0},
+            {'title': 'AYT Tarih-1', 'questions': 10, 'ayt_katsayi': 2.80},
+            {'title': 'AYT Coğrafya-1', 'questions': 6, 'ayt_katsayi': 3.33},
+            {'title': 'AYT Tarih-2', 'questions': 11, 'ayt_katsayi': 2.91},
+            {'title': 'AYT Coğrafya-2', 'questions': 11, 'ayt_katsayi': 2.91},
+            {'title': 'AYT Felsefe Grubu', 'questions': 12, 'ayt_katsayi': 3.0},
+            {'title': 'AYT Din Kültürü', 'questions': 6, 'ayt_katsayi': 3.33},
+          ]);
+          break;
+        case 'yks_dil':
+          ayt.add({'title': 'YDT Yabancı Dil', 'questions': 80, 'ayt_katsayi': 3.0});
+          break;
+      }
+
+      final all = [...tyt, ...ayt];
+      return {'all_sections': all, 'tyt_sections': tyt, 'ayt_sections': ayt};
+    }
+
+    List<Map<String, dynamic>> kpss = [];
+    switch (examId) {
+      case 'ortaogretim':
+        kpss = [
+          {'title': 'Genel Yetenek', 'questions': 60, 'weight': 0.5, 'mean': 15.5, 'sd': 8.2},
+          {'title': 'Genel Kültür', 'questions': 60, 'weight': 0.5, 'mean': 13.8, 'sd': 7.2},
+        ];
+        break;
+      case 'onlisans':
+        kpss = [
+          {'title': 'Genel Yetenek', 'questions': 60, 'weight': 0.5, 'mean': 20.5, 'sd': 8.0},
+          {'title': 'Genel Kültür', 'questions': 60, 'weight': 0.5, 'mean': 18.2, 'sd': 7.5},
+        ];
+        break;
+      case 'lisans':
+        kpss = [
+          {'title': 'GY - Türkçe', 'questions': 30, 'weight': 0.25, 'mean': 11.2, 'sd': 6.2},
+          {'title': 'GY - Matematik', 'questions': 30, 'weight': 0.25, 'mean': 7.5, 'sd': 6.5},
+          {'title': 'GK - Tarih', 'questions': 27, 'weight': 0.225, 'mean': 8.3, 'sd': 5.8},
+          {'title': 'GK - Coğrafya', 'questions': 18, 'weight': 0.15, 'mean': 5.8, 'sd': 4.2},
+          {'title': 'GK - Vatandaşlık', 'questions': 9, 'weight': 0.075, 'mean': 3.2, 'sd': 2.5},
+          {'title': 'GK - Güncel', 'questions': 6, 'weight': 0.05, 'mean': 1.8, 'sd': 1.8},
+        ];
+        break;
+      case 'oabt':
+        kpss = [
+          {'title': 'Genel Yetenek', 'questions': 60, 'weight': 0.15, 'mean': 16.5, 'sd': 7.8},
+          {'title': 'Genel Kültür', 'questions': 60, 'weight': 0.15, 'mean': 14.5, 'sd': 7.0},
+          {'title': 'Eğitim Bilimleri', 'questions': 80, 'weight': 0.20, 'mean': 38.0, 'sd': 8.5},
+          {'title': 'Alan Bilgisi', 'questions': 75, 'weight': 0.50, 'mean': 32.5, 'sd': 9.5},
+        ];
+        break;
+      case 'dhbt':
+        kpss = [
+          {'title': 'DHBT-1', 'questions': 20},
+          {'title': 'DHBT-2', 'questions': 20},
+        ];
+        break;
+      case 'ekpss':
+        kpss = [
+          {'title': 'Genel Yetenek', 'questions': 30, 'weight': 0.5, 'mean': 9.5, 'sd': 5.5},
+          {'title': 'Genel Kültür', 'questions': 30, 'weight': 0.5, 'mean': 11.2, 'sd': 4.8},
+        ];
+        break;
+      case 'ags_general':
+        kpss = [
+          {'title': 'Sözel Yetenek', 'questions': 15, 'weight': 0.20, 'mean': 7.5, 'sd': 2.3},
+          {'title': 'Sayısal Yetenek', 'questions': 15, 'weight': 0.20, 'mean': 5.8, 'sd': 2.3},
+          {'title': 'Tarih', 'questions': 10, 'weight': 0.10, 'mean': 4.5, 'sd': 1.8},
+          {'title': 'Türkiye Coğrafyası', 'questions': 8, 'weight': 0.05, 'mean': 3.8, 'sd': 1.4},
+          {'title': 'Eğitim Temelleri', 'questions': 24, 'weight': 0.35, 'mean': 11.0, 'sd': 3.8},
+          {'title': 'Mevzuat', 'questions': 8, 'weight': 0.10, 'mean': 3.8, 'sd': 1.4},
+        ];
+        break;
+    }
+    return {'all_sections': kpss, 'tyt_sections': [], 'ayt_sections': []};
+  }
+
+  void calculateYksScore() async {
+    setState(() => isCalculating = true);
+    double totalTyt = 0.0, totalAyt = 0.0;
+    bool hasError = false;
+    netMap.clear();
+
+    for (var sec in sections) {
+      final title = sec['title'] as String;
+      final tytK = (sec['tyt_katsayi'] ?? 0.0) as double;
+      final aytK = (sec['ayt_katsayi'] ?? 0.0) as double;
+      final maxQ = (sec['questions'] ?? 0) as int;
+
+      final c = double.tryParse(correctControllers[title]?.text ?? '0') ?? 0;
+      final w = double.tryParse(wrongControllers[title]?.text ?? '0') ?? 0;
+
+      if (c < 0 || w < 0 || (c + w) > maxQ) {
+        hasError = true;
+        continue;
+      }
+
+      final net = c - (w / 4.0);
+      netMap[title] = net;
+
+      if (tytK > 0) totalTyt += net * tytK;
+      if (aytK > 0 && widget.examId != 'yks_tyt') totalAyt += net * aytK;
+    }
+
+    if (hasError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Doğru + Yanlış, toplam soru sayısını aşamaz!'), backgroundColor: Colors.red),
+      );
+      setState(() => isCalculating = false);
+      return;
+    }
+
+    final userTytHam = double.tryParse(tytScoreController.text) ?? 0;
+    final tytPuan = (userTytHam > 0 && widget.examId != 'yks_tyt') ? userTytHam : 100.0 + totalTyt;
+
+    final aytPuan = widget.examId == 'yks_tyt' ? 0.0 : totalAyt;
+
+    final diploma = double.tryParse(obpController.text) ?? 0;
+    final obp = (diploma * 0.6).clamp(30.0, 60.0);
+
+    final finalScore = tytPuan + aytPuan + obp;
+
+    setState(() {
+      rawScore = (tytPuan + aytPuan).toStringAsFixed(2);
+      obpScore = obp.toStringAsFixed(2);
+      totalAYTScore = aytPuan.toStringAsFixed(2);
+      score = finalScore.clamp(100.0, 560.0).toStringAsFixed(2);
+      isCalculating = false;
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_${widget.examId}', score);
+
+    final history = prefs.getStringList('history') ?? [];
+    history.insert(0, '${DateTime.now().toIso8601String()}|${widget.examTitle}|$score');
+    if (history.length > 50) history.removeLast();
+    await prefs.setStringList('history', history);
+  }
+
+  void calculateKpssScore() async {
+    setState(() => isCalculating = true);
+
+    if (widget.examId == 'dhbt') {
+      double totalNet = 0.0;
+      bool hasError = false;
+
+      for (var sec in sections) {
+        final title = sec['title'] as String;
+        final maxQ = sec['questions'] as int;
+
+        final c = double.tryParse(correctControllers[title]?.text ?? '0') ?? 0;
+        final w = double.tryParse(wrongControllers[title]?.text ?? '0') ?? 0;
+
+        if (c < 0 || w < 0 || (c + w) > maxQ) {
+          hasError = true;
+          continue;
+        }
+
+        final net = c - (w / 4.0);
+        totalNet += net;
+        netMap[title] = net;
+      }
+
+      if (hasError) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Soru sınırını aştınız!'), backgroundColor: Colors.red));
+        setState(() => isCalculating = false);
+        return;
+      }
+
+      final double dhbtScore = 20.0 + (totalNet * 2.0);
+
+      setState(() {
+        score = dhbtScore.clamp(0.0, 100.0).toStringAsFixed(2);
+        totalAYTScore = totalNet.toStringAsFixed(2);
+        isCalculating = false;
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_${widget.examId}', score);
+      final history = prefs.getStringList('history') ?? [];
+      history.insert(0, '${DateTime.now().toIso8601String()}|${widget.examTitle}|$score');
+      if (history.length > 50) history.removeLast();
+      await prefs.setStringList('history', history);
+      return;
+    }
+
+    double totalASP = 0.0;
+    bool hasError = false;
+    netMap.clear();
+
+    for (var sec in sections) {
+      final title = sec['title'] as String;
+      final weight = (sec['weight'] ?? 0.0) as double;
+      final maxQ = (sec['questions'] ?? 0) as int;
+      final mean = (sec['mean'] ?? 15.0) as double;
+      final sd = (sec['sd'] ?? 8.0) as double;
+
+      final c = double.tryParse(correctControllers[title]?.text ?? '0') ?? 0;
+      final w = double.tryParse(wrongControllers[title]?.text ?? '0') ?? 0;
+
+      if (c < 0 || w < 0 || (c + w) > maxQ) {
+        hasError = true;
+        continue;
+      }
+
+      final net = c - (w / 4.0);
+      netMap[title] = net;
+
+      final sp = 50.0 + 10.0 * ((net - mean) / sd);
+      totalASP += sp * weight;
+    }
+
+    if (hasError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Soru sınırını aştınız!'), backgroundColor: Colors.red),
+      );
+      setState(() => isCalculating = false);
+      return;
+    }
+
+    final double finalScore = 70.0 + (30.0 * (2.0 * (totalASP - 50.0) - 10.0)) / (2.0 * (100.0 - 50.0) - 10.0);
+
+    setState(() {
+      score = finalScore.clamp(0.0, 100.0).toStringAsFixed(2);
+      totalAYTScore = totalASP.toStringAsFixed(4);
+      isCalculating = false;
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_${widget.examId}', score);
+    final history = prefs.getStringList('history') ?? [];
+    history.insert(0, '${DateTime.now().toIso8601String()}|${widget.examTitle}|$score');
+    if (history.length > 50) history.removeLast();
+    await prefs.setStringList('history', history);
+  }
+
+  void _resetInputs() {
+    setState(() {
+      for (var c in correctControllers.values) c.clear();
+      for (var w in wrongControllers.values) w.clear();
+      obpController.clear();
+      tytScoreController.clear();
+      hedefController.clear();
+      score = rawScore = obpScore = totalAYTScore = '0.00';
+      netMap.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isYks = isYksExam();
+    final double scoreValue = double.tryParse(score) ?? 0.0;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.examTitle, style: const TextStyle(fontSize: 18)),
+        backgroundColor: const Color(0xFF6A1B9A),
+        foregroundColor: Colors.white,
+        elevation: 4,
+      ),
+      bottomNavigationBar: const BannerAdWidget(),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter),
+        ),
+        child: Column(
+          children: [
+            if (isYks)
+              Card(
+                margin: const EdgeInsets.all(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      if (widget.examId != 'yks_tyt')
+                        TextField(
+                          controller: tytScoreController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'TYT Ham Puanı (İsteğe Bağlı)',
+                            hintText: 'Örn: 285.5',
+                          ),
+                        ),
+                      TextField(
+                        controller: obpController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: 'Diploma Notu (0-100)'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: hedefController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Hedef Puan (isteğe bağlı)',
+                          prefixIcon: Icon(Icons.flag, color: Colors.purple),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: sections.length,
+                itemBuilder: (_, i) {
+                  final sec = sections[i];
+                  final title = (sec['title'] as String).replaceFirst(RegExp(r'^(AYT |YDT |TYT )'), '');
+                  final maxQ = (sec['questions'] ?? 0) as int;
+                  final net = netMap[sec['title']] ?? 0.0;
+                  return Card(
+                    elevation: 3,
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(title, style: Theme.of(context).textTheme.titleLarge),
+                              Text('$maxQ Soru', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: correctControllers[sec['title']],
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'Doğru',
+                                    prefixIcon: const Icon(Icons.check, color: Colors.green),
+                                    hintText: '0-$maxQ',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: wrongControllers[sec['title']],
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'Yanlış',
+                                    prefixIcon: const Icon(Icons.close, color: Colors.red),
+                                    hintText: '0-$maxQ',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (net != 0.0)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Net: ${net.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: net >= 0 ? Colors.green : Colors.red,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            Container(
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF6A1B9A), Color(0xFF9C27B0)]),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 6))],
+              ),
+              child: Column(
+                children: [
+                  Text(isYks ? 'Yerleştirme Puanı' : isAgsExam() ? 'AGS Puanı' : 'KPSS Puanı',
+                      style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                  Text(score,
+                      style: TextStyle(
+                          color: _getScoreColor(scoreValue, isYks),
+                          fontSize: 38,
+                          fontWeight: FontWeight.bold)),
+                  const Divider(color: Colors.white38),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStat(isYks ? 'Ham' : 'ASP', isYks ? rawScore : totalAYTScore),
+                      if (isYks) _buildStat('OBP', obpScore),
+                    ],
+                  ),
+
+                  if (netMap.isNotEmpty && netMap.values.any((n) => n != 0))
+                    SizedBox(
+                      height: 180,
+                      child: PieChart(
+                        PieChartData(
+                          sections: netMap.entries.map((e) {
+                            return PieChartSectionData(
+                              value: e.value.abs(),
+                              color: e.value >= 0 ? Colors.green : Colors.red,
+                              title: e.value.toStringAsFixed(1),
+                              radius: 50,
+                              titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            );
+                          }).toList(),
+                          sectionsSpace: 2,
+                          centerSpaceRadius: 40,
+                        ),
+                      ),
+                    ),
+
+                  if (hedefController.text.isNotEmpty)
+                    Builder(builder: (context) {
+                      final hedef = double.tryParse(hedefController.text) ?? 0;
+                      final fark = hedef - scoreValue;
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          fark > 0 ? "Hedefine ${fark.toStringAsFixed(1)} puan kaldı" : "Tebrikler! Hedefini geçtin!",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: fark > 0 ? Colors.orangeAccent : Colors.greenAccent,
+                          ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: isCalculating ? null : (isYks ? calculateYksScore : calculateKpssScore),
+                      icon: isCalculating
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Icon(Icons.calculate),
+                      label: Text(isCalculating ? 'Hesaplanıyor...' : 'HESAPLA'),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.pinkAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 14)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: _resetInputs,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Sıfırla'),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber,
+                        padding: const EdgeInsets.symmetric(vertical: 14)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getScoreColor(double s, bool yks) {
+    if (yks) return s >= 450 ? Colors.greenAccent : s >= 300 ? Colors.orangeAccent : Colors.redAccent;
+    return s >= 85 ? Colors.greenAccent : s >= 70 ? Colors.orangeAccent : Colors.redAccent;
+  }
+
+  Widget _buildStat(String label, String value) => Column(
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      );
+}
