@@ -1,17 +1,16 @@
-name: sinavo_hesap
-description: SINAVO – ÖSYM ile aynı sonuçlar veren en doğru YKS, KPSS, DHBT, AGS puan hesaplayıcı
+name: sinav365
+description: SINAV365 – ÖSYM ile aynı sonuçları veren en doğru YKS, KPSS puan hesaplayıcı
 publish_to: 'none'
-version: 2.1.0+7  # Artırdım çünkü çok güzel özellikler eklendi
+version: 2.1.0+12
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'   # 2025 için en güncel ve stabil
+  sdk: '>=3.3.0 <4.0.0'
   flutter: ">=3.22.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
-  # GÜNCEL & ÇALIŞAN SÜRÜMLER (test edildi, sıfır hata)
   google_mobile_ads: ^5.3.1
   google_fonts: ^6.2.1
   shared_preferences: ^2.4.0
@@ -21,23 +20,25 @@ dependencies:
   fl_chart: ^0.70.0
   percent_indicator: ^4.2.3
   flutter_tts: ^4.0.2
+  purchases_flutter: ^9.12.2
+  in_app_purchase: ^3.1.13
+  http: ^1.2.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
-
   assets:
     - assets/icons/app_icon.png
 
-# İkon paketi (isteğe bağlı ama çok güzel olur)
-flutter_icons:
-  android: "launcher_icon"
-  ios: true
+flutter_launcher_icons:
+  android: true
+  ios: false
   image_path: "assets/icons/app_icon.png"
-  min_sdk_android: 21
+
   adaptive_icon_background: "#6A1B9A"
-  adaptive_icon_foreground: "assets/icons/app_icon_foreground.png" # varsa
+  adaptive_icon_foreground: "assets/icons/app_icon.png"
